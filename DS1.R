@@ -14,34 +14,63 @@ ggplot(DS1,aes(x=average_household_income,y=solar_panel_area_divided_by_area))+g
 #net metering years does not have any linear relation with solar panel installation
 library(ggplot2)
 ggplot(DS1,aes(x=(solar_panel_area_divided_by_area), y=net_metering))+geom_point(aes(color=net_metering))+theme_classic()
-DS1$solar_system_count
 
 #building different models using all variables and comparing % error
 #linear regression
+#all features
 ds1_new<-DS1[complete.cases((DS1)),]
-solarmodel<-lm(daily_solar_radiation~., data=ds1_new)
+solarmodel1<-lm(daily_solar_radiation~., data=ds1_new)
 summary(solarmodel)
-library(caret)
-a<-varImp(solarmodel)
-par(mfrow = c(2, 2))
-plot(solarmodel)
 library(ggplot2)
-ds1_new$predicted=solarmodel$fitted.values
-ds1_new$residuals=solarmodel$residuals
+ds1_new$predicted1=solarmodel1$fitted.values
+ds1_new$residuals1=solarmodel1$residuals
+
+#selected features
+library(caret)
+a<-as.data.frame(varImp(solarmodel))
+solarmodel2<-lm(daily_solar_radiation~wind_speed+heating_design_temperature+earth_temperature_amplitude+relative_humidity+voting_2016_dem_win+frost_days+cooling_design_temperature+cooling_degree_days+air_temperature+lon+housing_unit_median_value+lat+voting_2016_gop_percentage+earth_temperature, data=ds1_new)
+library(ggplot2)
+ds1_new$predicted2=solarmodel2$fitted.values
+ds1_new$residuals2=solarmodel2$residuals
 
 #plotting actual values with residuals to see how residuals are distributed in the data
-ggplot(ds1_new,aes(x=daily_solar_radiation, y=predicted))+
+lr1<-ggplot(ds1_new,aes(x=daily_solar_radiation, y=predicted1))+
   geom_smooth(method = "lm", se = FALSE, color = "lightgrey") +
-  geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+
+  geom_point(aes(color=abs(residuals1)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+
+  theme_classic()
+lr2<-ggplot(ds1_new,aes(x=daily_solar_radiation, y=predicted2))+
+  geom_smooth(method = "lm", se = FALSE, color = "lightgrey") +
+  geom_point(aes(color=abs(residuals2)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+
   theme_classic()
 
-mse(ds1_new$daily_solar_radiation,ds1_new$predicted)
-#random forest
+library(ggpubr)
+figure <- ggarrange(lr1, lr2,
+                    labels = c("LR(All features) ", "LR(15 features)"),
+                    ncol = 1, nrow = 2)
+figure
+
+mse(ds1_new$daily_solar_radiation,ds1_new$predicted1)
+mse(ds1_new$daily_solar_radiation,ds1_new$predicted2)
+cor(ds1_new$daily_solar_radiation,ds1_new$predicted1)
+cor(ds1_new$daily_solar_radiation,ds1_new$predicted2)
+
+library(plyr)
+par(mfrow=c(1,2))
+boxplot(ds1_new$residuals1)
+boxplot(ds1_new$residuals2)
+
+nrow(as.data.frame(boxplot.stats(ds1_new$residuals1)$out))
+nrow(as.data.frame(boxplot.stats(ds1_new$residuals2)$out))
+
+
+#Random forest
 library(randomForest)
 ds1_new<-DS1[complete.cases((DS1)),]
+
 #removing county and state columns because they are character columns
 ds1_new<-ds1_new[,c(-6,-38)]
 str(ds1_new)
+
 #split into train and validation set
 set.seed(100)
 train <- sample(nrow(ds1_new), 0.7*nrow(ds1_new), replace = FALSE)
@@ -50,161 +79,35 @@ ValidSet <- ds1_new[-train,]
 summary(TrainSet)
 summary(ValidSet)
 str(TrainSet)
+
+#all features
 model1 <- randomForest(daily_solar_radiation ~ .,data = TrainSet, importance=TRUE)
-plot(model1$oob.times)
+
+#filtering features
 varImpPlot(model1)
-model1
-TrainSet$predicted<-predict(model1, newdata= TrainSet)
-TrainSet$residuals<-TrainSet$daily_solar_radiation-TrainSet$predicted
 
-library(ggplot2)
-ggplot(TrainSet,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
 
+model1 <- randomForest(daily_solar_radiation ~ .,data = TrainSet, importance=TRUE)
+model2 <- randomForest(daily_solar_radiation ~ relative_humidity+total_panel_area_residential+total_panel_area+tile_count+solar_panel_area_per_capita+solar_panel_area_divided_by_area+solar_system_count_residential+number_of_solar_system_per_household+tile_count_residential+wind_speed+solar_system_count+race_asian_rate+race_asian+race_other+total_panel_area_nonresidential,data = TrainSet, importance=TRUE)
 #predicting on validation dataset
-ValidSet$predicted<-predict(model1, newdata= ValidSet)
-ValidSet$residuals<-ValidSet$daily_solar_radiation-ValidSet$predicted
-ggplot(ValidSet,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-library(ModelMetrics)
-mse(ValidSet$daily_solar_radiation,ValidSet$predicted)
-mse(TrainSet$daily_solar_radiation,TrainSet$predicted)
-
-#running this rf model on overall ds data
-library(randomForest)
-ds1_new<-DS1[complete.cases((DS1)),]
-#removing county and state columns because they are character columns
-ds1_new<-ds1_new[,c(-6,-38)]
-ds1_new$predicted<-predict(model1,newdata=ds1_new)
-ds1_new$residuals<-ds1_new$daily_solar_radiation-ds1_new$predicted
-ggplot(ds1_new,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds1_new$daily_solar_radiation,ds1_new$predicted)
+ValidSet$predicted1<-predict(model1, newdata= ValidSet)
+ValidSet$residuals1<-ValidSet$daily_solar_radiation-ValidSet$predicted1
+ValidSet$predicted2<-predict(model2, newdata= ValidSet)
+ValidSet$residuals2<-ValidSet$daily_solar_radiation-ValidSet$predicted2
 
 
-#ARITIFICAL NEURAL NETWORK
-#begin by feature selection
-#finding and removing redundant features using recursive feature elimination (we have 165 features to begin with)
-ds1_new<-DS1[complete.cases((DS1)),]
-ds1_new<-ds1_new[,c(-6,-38)]
-str(ds1_new)
-solarrad<-ds1_new$daily_solar_radiation
-ds1_new$daily_solar_radiation<-NULL
-ds1_new$daily_solar_radiation<-solarrad
-library(mlbench)
-library(caret)
-library(randomForest)
-model1 <- randomForest(daily_solar_radiation ~ .,data = ds1_new, importance=TRUE)
-plot(model1$oob.times)
-imp_vars<-as.data.frame(model1$importance)
-#filter features, take the top 20 most influential features into account, as given using the random forest model for preliminary filtering
-library(sqldf)
-ds_20f<-sqldf('select relative_humidity,	earth_temperature,	heating_degree_days,	lon,	air_temperature,	incentive_count_nonresidential,	atmospheric_pressure,	lat,	heating_design_temperature,	elevation,	frost_days,	incentive_count_residential,	cooling_design_temperature,	cooling_degree_days,	fips,	earth_temperature_amplitude,	electricity_price_commercial,	electricity_price_overall,	tile_count_residential,	total_panel_area, daily_solar_radiation
-              from ds1_new')
-head(ds_20f)
-data_corr<-as.data.frame(cor(ds_20f))
-#filtering features whcih are highly correlated
-ds_20f<-sqldf('select relative_humidity,	lon,	air_temperature,	incentive_count_nonresidential,	atmospheric_pressure,	lat,	incentive_count_residential,	cooling_design_temperature,	fips,	earth_temperature_amplitude,	electricity_price_commercial,	electricity_price_overall,	tile_count_residential,	total_panel_area, daily_solar_radiation
-              from ds1_new')
-head(ds_20f)
+rf1<-ggplot(ValidSet,aes(x=daily_solar_radiation,y=predicted1))+geom_point(aes(color=abs(residuals1)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
+rf2<-ggplot(ValidSet,aes(x=daily_solar_radiation,y=predicted2))+geom_point(aes(color=abs(residuals2)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
 
-#5 layers
-ds_20f<-sqldf('select relative_humidity,	lon,	air_temperature,	incentive_count_nonresidential,	atmospheric_pressure,	lat,	incentive_count_residential,	cooling_design_temperature,	fips,	earth_temperature_amplitude,	electricity_price_commercial,	electricity_price_overall,	tile_count_residential,	total_panel_area, daily_solar_radiation
-              from ds1_new')
-head(ds_20f)
-train <- sample(nrow(ds_20f), 0.7*nrow(ds_20f), replace = FALSE)
-TrainSet <- ds_20f[train,]
-ValidSet <- ds_20f[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=5, threshold=0.01)
-net.results <- compute(net.ds, ds_20f)
-ds_20f$predicted<-net.results$net.result
-ds_20f$residuals<-ds_20f$daily_solar_radiation-ds_20f$predicted
-library(ggplot2)
-g1<-ggplot(ds_20f,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds_20f$daily_solar_radiation,ds_20f$predicted)
-
-#10 layers
-ds_20f<-sqldf('select relative_humidity,	lon,	air_temperature,	incentive_count_nonresidential,	atmospheric_pressure,	lat,	incentive_count_residential,	cooling_design_temperature,	fips,	earth_temperature_amplitude,	electricity_price_commercial,	electricity_price_overall,	tile_count_residential,	total_panel_area, daily_solar_radiation
-              from ds1_new')
-head(ds_20f)
-train <- sample(nrow(ds_20f), 0.7*nrow(ds_20f), replace = FALSE)
-TrainSet <- ds_20f[train,]
-ValidSet <- ds_20f[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=10, threshold=0.01)
-net.results <- compute(net.ds, ds_20f)
-ds_20f$predicted<-net.results$net.result
-ds_20f$residuals<-ds_20f$daily_solar_radiation-ds_20f$predicted
-library(ggplot2)
-g2<-ggplot(ds_20f,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds_20f$daily_solar_radiation,ds_20f$predicted)
-
-#20 layers
-ds_20f<-sqldf('select relative_humidity,	lon,	air_temperature,	incentive_count_nonresidential,	atmospheric_pressure,	lat,	incentive_count_residential,	cooling_design_temperature,	fips,	earth_temperature_amplitude,	electricity_price_commercial,	electricity_price_overall,	tile_count_residential,	total_panel_area, daily_solar_radiation
-              from ds1_new')
-head(ds_20f)
-train <- sample(nrow(ds_20f), 0.7*nrow(ds_20f), replace = FALSE)
-TrainSet <- ds_20f[train,]
-ValidSet <- ds_20f[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=20, threshold=0.01)
-net.results <- compute(net.ds, ds_20f)
-ds_20f$predicted<-net.results$net.result
-ds_20f$residuals<-ds_20f$daily_solar_radiation-ds_20f$predicted
-library(ggplot2)
-g3<-ggplot(ds_20f,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds_20f$daily_solar_radiation,ds_20f$predicted)
 library(ggpubr)
-figure <- ggarrange(g1, g2, g3,
-                    labels = c("5 layers", "10 layers", "20 layers"),
-                    ncol = 1, nrow = 3)
+figure <- ggarrange(rf1, rf2,
+                    labels = c("RF (All features)", "RF (15 features)"),
+                    ncol = 1, nrow = 2)
 figure
-#Neural network with all features
-#5 layers
-train <- sample(nrow(ds1_new), 0.7*nrow(ds1_new), replace = FALSE)
-ds1_new$predicted<-NULL
-TrainSet <- ds1_new[train,]
-ValidSet <- ds1_new[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=5, threshold=0.01)
-net.results <- compute(net.ds, ds1_new)
-ds1_new$predicted<-net.results$net.result
-ds1_new$residuals<-ds1_new$daily_solar_radiation-ds1_new$predicted
-library(ModelMetrics)
-library(ggplot2)
-g1<-ggplot(ds1_new,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds1_new$daily_solar_radiation,ds1_new$predicted)
 
-#10 layers
-train <- sample(nrow(ds1_new), 0.7*nrow(ds1_new), replace = FALSE)
-ds1_new$predicted<-NULL
-TrainSet <- ds1_new[train,]
-ValidSet <- ds1_new[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=10, threshold=0.01)
-net.results <- compute(net.ds, ds1_new)
-ds1_new$predicted<-net.results$net.result
-ds1_new$residuals<-ds1_new$daily_solar_radiation-ds1_new$predicted
 library(ModelMetrics)
-library(ggplot2)
-g2<-ggplot(ds1_new,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds1_new$daily_solar_radiation,ds1_new$predicted)
-
-#20 layers
-train <- sample(nrow(ds1_new), 0.7*nrow(ds1_new), replace = FALSE)
-ds1_new$predicted<-NULL
-TrainSet <- ds1_new[train,]
-ValidSet <- ds1_new[-train,]
-library("neuralnet")
-net.ds <- neuralnet(daily_solar_radiation~.,TrainSet, hidden=20, threshold=0.01)
-net.results <- compute(net.ds, ds1_new)
-ds1_new$predicted<-net.results$net.result
-ds1_new$residuals<-ds1_new$daily_solar_radiation-ds1_new$predicted
-library(ModelMetrics)
-library(ggplot2)
-g3<-ggplot(ds1_new,aes(x=daily_solar_radiation,y=predicted))+geom_point(aes(color=abs(residuals)))+scale_color_gradient2(low = "White", mid = "Yellow", high = "Red")+theme_classic()
-mse(ds1_new$daily_solar_radiation,ds1_new$predicted)
-library(ggpubr)
-figure <- ggarrange(g1, g2, g3,
-                    labels = c("5 layers", "10 layers", "20 layers"),
-                    ncol = 1, nrow = 3)
-figure
+mse(ValidSet$daily_solar_radiation,ValidSet$predicted1)
+mse(ValidSet$daily_solar_radiation,ValidSet$predicted2)
+cor(ValidSet$daily_solar_radiation,ValidSet$predicted1)
+cor(ValidSet$daily_solar_radiation,ValidSet$predicted2)
 
